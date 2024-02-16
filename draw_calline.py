@@ -38,7 +38,7 @@ def draw_calline(inputfile = "cal_acgain20.csv", datadir="C:\Data/TMU2023A/calib
   ax1.set_ylabel('Energy [keV]')
   ax2=fig.add_subplot(3,1,3, sharex=ax1)
 
-  ax2.scatter(pd_csv["peakch"],pd_csv["energy"]-a*pd_csv["peakch"]+b)
+  ax2.scatter(pd_csv["peakch"],pd_csv["energy"]-(a*pd_csv["peakch"]+b) )
 
   
   ax2.plot(x_space, np.zeros(len(x_space)), color='red',label='{0:.3e}x+{1:.3e}'.format(a,b))
@@ -51,4 +51,5 @@ def draw_calline(inputfile = "cal_acgain20.csv", datadir="C:\Data/TMU2023A/calib
 
 if __name__ == "__main__":
   #draw_calline(inputfile = "cal_acgain20.csv", datadir="C:\Data/TMU2023A/calib/", outdir="C:\Data/TMU2023A/pdf/", outname="calib.pdf")
-  draw_calline(inputfile = "cal_acgain20_20230204.csv", datadir="C:\Data/TMU2023A/calib/", outdir="C:\Data/TMU2023A/pdf/", outname="calib_20230204.pdf")
+  #draw_calline(inputfile = "cal_acgain20_20230204.csv", datadir="C:\Data/TMU2023A/calib/", outdir="C:\Data/TMU2023A/pdf/", outname="calib_20230204.pdf")
+  draw_calline(inputfile = "cal_acgain10.csv", datadir="C:\Data/RKN2024A/calib/", outdir="C:\Data/RKN2024A/pdf/", outname="calib_20240204.pdf")

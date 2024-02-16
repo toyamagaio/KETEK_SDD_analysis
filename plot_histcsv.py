@@ -31,14 +31,15 @@ def readcsv(inputfile = "list_000008_01-00000000001.bin", ENum = -1, datadir="C:
   elif ch_or_ene == 'eV':
       print('eV csv')
       xlabel="Energy [eV]"
-      gene_cut = (pd_csv[ch_or_ene] >2000) & (pd_csv[ch_or_ene] < 40000)
+      gene_cut = (pd_csv[ch_or_ene] >2000) & (pd_csv[ch_or_ene] < 100000)
   elif ch_or_ene == 'keV':
       print('keV csv')
       xlabel="Energy [keV]"
-      gene_cut = (pd_csv[ch_or_ene] >2000) & (pd_csv[ch_or_ene] < 40000)
+      gene_cut = (pd_csv[ch_or_ene] >2000) & (pd_csv[ch_or_ene] < 100000)
   else:
       print('unknown style')
   #print(pd_csv.values[0][0])
+  print('max: {} '.format(max(pd_csv[ch_or_ene])))
 
   x_pos=[]
   peaks=[]
@@ -101,7 +102,16 @@ if __name__ == "__main__":
     #ranges=[[21.7,22.7],[24.4,25.4]]
     #readcsv(inputfile = "hist_230204_235912.csv", datadir=datadir, outdir="C:\Data/TMU2023A/pdf/", outname="SDD_ene_Ag_MeV.pdf",  cal_lines=cal_lines, ranges=ranges)
 
-    cal_lines=[6400, 211200., 211200., 23820.]#Pd Kalpha Kbeta
-    ranges=[[6000, 7500],[20600.,21600.],[20000.,25000.],[23300.,24300.]]
-    #readcsv(inputfile = "hist_230204_221718.csv", datadir=datadir, outdir="C:\Data/TMU2023A/pdf/", outname="SDD_ene_Co57.pdf",  cal_lines=cal_lines, ranges=ranges)
-    readcsv(inputfile = "hist_230205_220503.csv", datadir=datadir, outdir="C:\Data/TMU2023A/pdf/", outname="SDD_ene_MLFbeam27MeVc.pdf",  cal_lines=cal_lines, ranges=ranges)
+    #cal_lines=[6400, 211200., 211200., 23820.]#Pd Kalpha Kbeta
+    #ranges=[[6000, 7500],[20600.,21600.],[20000.,25000.],[23300.,24300.]]
+    ##readcsv(inputfile = "hist_230204_221718.csv", datadir=datadir, outdir="C:\Data/TMU2023A/pdf/", outname="SDD_ene_Co57.pdf",  cal_lines=cal_lines, ranges=ranges)
+    #readcsv(inputfile = "hist_230205_220503.csv", datadir=datadir, outdir="C:\Data/TMU2023A/pdf/", outname="SDD_ene_MLFbeam27MeVc.pdf",  cal_lines=cal_lines, ranges=ranges)
+
+
+
+    datadir="C:\Data/RKN2024A/histograms/"
+    cal_lines=[39.522, 40.118, 45.294, 45.414] #keV
+    #ranges=[[39000, 40000],[39600,40600],[44800,45800],[35000,50000]]#[44900,45900]
+    #readcsv(inputfile = "20240203_Eu152_0_man.csv", datadir=datadir, outdir="C:\Data/RKN2024A/pdf/", outname="SDD_Eu152_0_man.pdf",  cal_lines=cal_lines, ranges=ranges)
+    ranges=[[3375, 3455],[3475,3550],[3850,4000],[4000,4100]]#[44900,45900]
+    readcsv(inputfile = "hist_240203_191350.csv", datadir=datadir, outdir="C:\Data/RKN2024A/pdf/", outname="SDD_Eu152_0_ch_lowgain.pdf",  cal_lines=cal_lines, ranges=ranges)
