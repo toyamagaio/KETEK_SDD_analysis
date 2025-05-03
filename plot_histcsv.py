@@ -12,6 +12,13 @@ import pandas as pd
 
 head_line=65
 
+#def addcsv(inputfiles,outncv,datadir="C:\Data/TMU2022C/histograms/"):
+#    for inputfile in inputfiles:
+#      pd_csv=pd.read_csv(datadir+inputfile, header=head_line)
+#      print(pd_csv)
+#      print(pd_csv.columns)
+#      print(pd_csv.columns[0])
+
 def readcsv(inputfile = "list_000008_01-00000000001.bin", ENum = -1, datadir="C:\Data/TMU2022C/list/", outdir="C:\Data/TMU2022C/pdf/", outname="SDD_ene.pdf", cal_lines=[0], ranges=[[0,8000]]):
   print('inputfile: ', datadir+inputfile)
   pd_csv=pd.read_csv(datadir+inputfile, header=head_line)
@@ -109,9 +116,15 @@ if __name__ == "__main__":
 
 
 
-    datadir="C:\Data/RKN2024A/histograms/"
-    cal_lines=[39.522, 40.118, 45.294, 45.414] #keV
-    #ranges=[[39000, 40000],[39600,40600],[44800,45800],[35000,50000]]#[44900,45900]
-    #readcsv(inputfile = "20240203_Eu152_0_man.csv", datadir=datadir, outdir="C:\Data/RKN2024A/pdf/", outname="SDD_Eu152_0_man.pdf",  cal_lines=cal_lines, ranges=ranges)
-    ranges=[[3375, 3455],[3475,3550],[3850,4000],[4000,4100]]#[44900,45900]
-    readcsv(inputfile = "hist_240203_191350.csv", datadir=datadir, outdir="C:\Data/RKN2024A/pdf/", outname="SDD_Eu152_0_ch_lowgain.pdf",  cal_lines=cal_lines, ranges=ranges)
+    #datadir="C:\Data/RKN2024A/histograms/"
+    #cal_lines=[39.522, 40.118, 45.294, 45.414] #keV
+    ##ranges=[[39000, 40000],[39600,40600],[44800,45800],[35000,50000]]#[44900,45900]
+    ##readcsv(inputfile = "20240203_Eu152_0_man.csv", datadir=datadir, outdir="C:\Data/RKN2024A/pdf/", outname="SDD_Eu152_0_man.pdf",  cal_lines=cal_lines, ranges=ranges)
+    #ranges=[[3375, 3455],[3475,3550],[3850,4000],[4000,4100]]#[44900,45900]
+    #readcsv(inputfile = "hist_240203_191350.csv", datadir=datadir, outdir="C:\Data/RKN2024A/pdf/", outname="SDD_Eu152_0_ch_lowgain.pdf",  cal_lines=cal_lines, ranges=ranges)
+    
+
+    datadir="C:\Data/MLF2024B/histograms/"
+    cal_lines=[11.12, 20.48] #keV
+    ranges=[[(11.12-0.5)/0.00725,(11.12+0.5)/0.00725 ],[(20.48-0.5)/0.00725 , (20.48+0.5)/0.00725 ]]#[44900,45900]
+    readcsv(inputfile = "hist_momscan_18MeVc_250421_113136.csv", datadir=datadir, outdir="C:\Data/MLF2024B/pdf/", outname="Mom18MeV_Ar01atm.pdf",  cal_lines=cal_lines, ranges=ranges)

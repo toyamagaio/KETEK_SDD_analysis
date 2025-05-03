@@ -588,8 +588,10 @@ if __name__ == "__main__":
     #frun=75
     #irun=76
     #frun=79
-    irun=82
-    frun=82
+    #irun=82
+    #frun=82
+    irun=120
+    frun=120
     for run in range(irun,frun+1):
       inputfiles.append("list_{0:06d}_01-00000000001.bin".format(run))
     readfile(inputfiles =inputfiles, ENum = -1, datadir="C:\Data/RKN2024A/list/", outdir="C:\Data/RKN2024A/pdf/", outname="SDD_ene_MLF_run{0:04d}_{1:04d}.pdf".format(irun, frun),  cal_source="XX")

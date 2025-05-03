@@ -475,11 +475,18 @@ if __name__ == "__main__":
     #labels=['#32, full open','#33, H 150mm, V full','#37, H 100mm, V full','#34, H 50mm, V full','#40, H 100mm, V 200mm']
     #print(str_runlist)
 
-    str_runlist='_col_vs_wocol_Zn_23MeV_'
-    runs=[55,56]
-    labels=['#55, w/o col','#56, w/ col']
+    #str_runlist='_col_vs_wocol_Zn_23MeV_'
+    #runs=[55,56]
+    #labels=['#55, w/o col','#56, w/ col']
+    #cal_source="muZr"
+    #print(str_runlist)
+
+    str_runlist='_col_vs_wocol_after_maintain_22MeV_'
+    runs=[35,59]
+    labels=['#35, w/o col','#59, w/ col']
     cal_source="muZr"
     print(str_runlist)
+
 
     noise_E=23
     rfactor_noi=2.0
