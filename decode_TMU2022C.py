@@ -1,0 +1,620 @@
+import sys
+import os
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+import scipy
+from scipy.stats import norm
+from scipy.optimize import curve_fit
+import math
+import h5py
+
+PHAmsk=0x3fff
+isGate=0x8000
+CHmsk=0x000f
+
+#def fit_gauss(data=[100, 101], f_range=[0, 100], d_range=[0,100]):
+#  param = norm.fit(data)
+#  return param
+def ngaussian(x, area, mu, sigma):
+   return area/(math.sqrt(2.*math.pi*sigma*sigma))*np.exp(-np.power((x - mu), 2.)/(2.*sigma*sigma))
+def gaussian(x, peak, mu, sigma):
+   return peak*np.exp(-np.power((x - mu), 2.)/(2.*sigma*sigma))
+
+def getNearestValue(list, num):
+  idx = np.abs(np.asarray(list) - num).argmin()
+  return list[idx]
+
+
+def get_energy(adc):
+  #2024/02/06 by muAr (rough)
+  a=0.0105
+  b=0.0
+  ##2024/02/06 by muAr (rough)
+  #a=0.0115
+  #b=-0.067
+
+  ##toyama
+  a=0.01467901235
+  b=-8.144074074
+
+  ene=(adc-2500.)*(14.400-6.43)/(2500.-1110.)+14.400 -0.15 #rough calib. ch-> keV
+
+  #2025/04/21 by 152Eu (rough)
+  #a=0.00725
+  #b=0.0
+  return ene
+  #return a*adc+b
+
+def get_cal_lines(source="Fe55"):
+  if source=="Fe55":
+    ene_list=[5.899, 6.490]#Mn Kalpha, Kbeta
+  elif source=="Co57":
+    ene_list=[14.41300,14.41300+6.404]#epsilon, +Fe Kalpha
+  elif source=="Eu152":
+    ene_list=[39.522, 40.118, 45.294, 45.414, 46.578, 46.705]#Sm Kalpha2, Kalpha1, Kbeta3, Kbeta1, Kbeta2, Kbeta4
+  elif source=="Pd":
+    ene_list=[21.12, 23.82]#Pd Kalpha Kbeta
+  elif source=="Ag":
+    ene_list=[22.162, 21.990, 24.942]#Ag Kalpha1, Kalpha2, Kbeta1
+    #ene_list=[22.162, 21.990, 24.942, 2.984, 2.978, 3.150, 3.347, 3.51959]#Ag Kalpha1, Kalpha2, Kbeta1, Lalpha1, Lalpha2, Lbeta1, Lgamma
+  elif source=="AgPd":
+    ene_list=[22.162, 21.990, 24.942, 21.12, 23.82]#Ag Kalpha1, Kalpha2, Kbeta1, Pd Kalpha Kbeta
+  elif source=="muAr":
+    ene_list=[11.12, 20.48,44.26]#
+  else :
+    ene_list=[]
+  return ene_list
+
+def readfile(inputfiles = ["list_000008_01-00000000001.bin"], ENum = -1, datadir="C:\Data/TMU2022C/list/", outdir="C:\Data/TMU2022C/pdf/", outname="SDD_ene.pdf", cal_source=""):
+  #bdata = open('C:\Data\list_000008_01-00000000001.bin','rb')
+  counter=0
+  trigIDs=list()
+  phas=list()
+  phas_wG=list()
+  phas_woG=list()
+  eners=list()
+  eners_wG=list()
+  eners_woG=list()
+  gates=list()
+  pufs=list()
+  times=list()
+  times_wG=list()
+  times_woG=list()
+
+  eners_MnKalpha=list()
+  eners_MnKbeta =list()
+  eners_Co57=list()
+  eners_Eu152=list()
+  
+  cal_lines=get_cal_lines(cal_source)
+  print("cal lines:",cal_lines)
+  #Co57_ranges=[13.413+0.3,15.413-0.3]
+  Co57_ranges=[14.2,14.65]
+  for inputfile in inputfiles:
+    print('inputfile: ', datadir+inputfile)
+    bdata = open(datadir+inputfile,'rb')
+    while True:
+      data = bdata.read(2)
+      #print(data)
+      #print(hex(data))
+      idata=int.from_bytes(data, byteorder='big', signed=False)
+      #print(hex(idata))
+
+      if hex(idata) == '0x7fff':
+        #print("header!!")
+        data = bdata.read(2)#header
+        #print("header2!!",data)
+        data = bdata.read(4)#trig ID
+        trigid=int.from_bytes(data, byteorder='big', signed=False)
+        #print("trigID:", trigid)
+
+        data = bdata.read(2)#U/G, U/V, Realtime1
+        idata=int.from_bytes(data, byteorder='big', signed=False)
+        gate=((idata>>15)&1) #gate flag
+        veto=((idata>>14)&1) #veto flag
+        time1=(idata&0x1fff) #not sure (will not be used anyway...)
+        #print('time1:',time1)
+        if gate > 0:
+          #print('Gated!:',gate)
+          gates.append(True)
+        else:
+          gates.append(False)
+        #if veto > 0:
+        #  print('Veto!:',veto)
+
+        data = bdata.read(4)#Realtime2
+        idata=int.from_bytes(data, byteorder='big', signed=False)
+        time2=idata*0.01 #0.01: 10ns->us
+        #print('time2:',time2)
+        times.append(time2)
+        #time2=((idata&0xfff)<<32) #not sure (will not be used anyway...)
+
+        data = bdata.read(2)#Realtime3, unit, ch
+        idata=int.from_bytes(data, byteorder='big', signed=False)
+        ch=(idata&CHmsk)
+        unit=((idata>>4)&CHmsk)
+
+        data = bdata.read(2)#Pileup, pulse height
+        idata=int.from_bytes(data, byteorder='big', signed=False)
+        #print("pha:", hex(idata))
+        pha=(idata&PHAmsk)
+        ener=get_energy(pha) #calib. ch-> keV
+        #ener=(pha-2500.)*(14.400-6.43)/(2500.-1110.)+14.400 #rough calib. ch-> keV  2022/03
+        #ener=pha*14.400/2520. #rough calib. ch-> keV
+        eners.append(ener)
+        puf=((idata>>15)&1) #pileup flag
+        #print("pha:", pha)
+        #print("hex(pha):", hex(pha))
+        #if(puf>0):
+        #  print("pileup!:",puf)
+        phas.append(pha)
+        if(gate>0):
+          phas_wG.append(pha)
+          eners_wG.append(ener)
+          times_wG.append(time2)
+          if(ener>5.75) & (ener<6.25):
+            eners_MnKalpha.append(ener)
+          elif(ener>6.25) & (ener<6.75):
+            eners_MnKbeta.append(ener)
+          elif(ener>Co57_ranges[0]) & (ener<Co57_ranges[1]):
+            eners_Co57.append(ener)
+          elif(ener>38) & (ener<42):
+            eners_Eu152.append(ener)
+        else:
+          phas_woG.append(pha)
+          eners_woG.append(ener)
+          times_woG.append(time2)
+
+      if len(data) == 0:
+        break
+      if counter >= ENum & ENum > 0:
+        break
+      counter += 1
+    bdata.close
+
+  pp=PdfPages(outdir+outname)
+  fig,ax=plt.subplots(3,1)
+  ax[0].hist(phas    , bins=1000, range=[500,10000],histtype='step',color='k', label='all'     )
+  #ax[1].hist(phas_wG , bins=1700, range=[1000,2700],histtype='step',color='r', label='w/ Gate' )
+  ax[1].hist(phas_wG , bins=1000, range=[500,10000],histtype='step',color='r', label='w/ Gate' )
+  ax[2].hist(phas_woG, bins=1000, range=[500,10000],histtype='step',color='b', label='w/o Gate')
+  ax[2].set_xlabel('Pulse height [ch]')
+  #ax[0].set_xlim(500,10000)
+  #ax[1].set_xlim(500,10000)
+  #ax[2].set_xlim(500,10000)
+  #ax[1].axvline(1110,color='b',linewidth=1)
+  #ax[1].axvline(2500,color='b',linewidth=1)
+  ax[1].set_xticks(np.arange(1000,2700,100), minor=True)
+  ax[0].legend()
+  ax[1].legend()
+  ax[2].legend()
+  #plt.show()
+  fig.tight_layout()
+  pp.savefig(fig)
+
+  fig1,ax1=plt.subplots(3,1)
+  #ax1[0].hist(phas    , bins=200, range=[2250,2750],histtype='step',color='k', label='all'     )
+  ax1[0].hist(phas    , bins=1000, range=[0,10000],histtype='step',color='k', label='all'     )
+  #ax1[1].hist(phas_wG , bins=1000, range=[0,10000],histtype='step',color='r', label='w/ Gate' )
+  #ax1[1].hist(phas_wG , bins=500, range=[1500,4000],histtype='step',color='r', label='w/ Gate' )
+  #ax1[1].hist(phas_wG , bins=200, range=[1800,2000],histtype='step',color='r', label='w/ Gate' )
+  ax1[1].hist(phas_wG , bins=200, range=[3200,3800],histtype='step',color='r', label='w/ Gate' )
+  ax1[1].grid(which='minor', axis='x', linestyle='dashed')
+  ax1[2].hist(phas_woG, bins=1000, range=[0,10000],histtype='step',color='b', label='w/o Gate')
+  ax1[2].set_xlabel('Pulse height [ch]')
+  ax1[0].legend()
+  ax1[1].legend()
+  ax1[2].legend()
+  #plt.show()
+  fig1.tight_layout()
+  #fig.savefig(outdir+outname)
+  pp.savefig(fig1)
+
+  muonicHe3_xray=8.13
+                 # 3-2, 4-3,  5-4
+  muonicO_xrays=[24.86, 8.7, 4.03]
+                 #  5-4,   6-5,   7-6,  8-7,  9-8, 10-9,11-10
+  muonicFe_xrays=[42.78, 23.23, 14.01, 9.09, 6.23, 4.46, 3.3]
+                 #  5-4,   6-5,   7-6,   8-7,  9-8, 10-9,11-10
+  muonicCu_xrays=[53.25, 28.91, 17.43, 11.31, 7.75, 5.55, 4.10]
+                 #  4-3,   5-4,   6-5,  7-6,  8-7,  9-8
+  muonicAr_xrays=[44.26, 20.48, 11.12, 6.71, 4.35, 2.98]
+                         #6-4,   7-5,   8-6,  9-7    9-6
+  muonicAr_xrays_sub=[31.60, 17.83, 11.06, 7.34, 14.04]
+                   #   4-2    5-3,#  6-4,   6-3,
+  muonicO_xrays_sub=[33.56, 12.73]# 6.21, 14.91]
+                   #    7-5,   8-6,   8-5,   9-7,   9-6,   9-5,
+  muonicFe_xrays_sub=[37.23, 23.09, 46.32, 15.32, 29.32, 52.55 ]
+
+  muonicCo_xrays  =[15.1, 9.8]
+                   # 2-1    3-2
+  muonicC_xrays  =[75.36, 13.95]
+                       # 5-2,   4-2
+  muonicC_xrays_sub  =[21.09, 18.83]
+
+                  #  2-1   3-2    4-2     3-1     4-1
+  muonicBe_xrays=[33.378, 6.18, 8.343, 39.558, 41.721]
+                  #  4-3   5-4   6-3     6-4      6-5    7-4
+  muonicAl_xrays=[23.04, 10.66, 39.50, 16.46] #  5.79, 19.95
+                  # 7-6    8-7    9-8   10-9 #  11-10 12-11  13-12 14-13
+  muonicAg_xrays=[45.86, 29.75, 20.39, 14.58]#, 10.79, 8.21,  6.39, 5.07]
+                  #  3-2     4-3    5-4    6-5   7-6
+  muonicSi_xrays =[ 76.42,  26.73, 12.37,  6.72, 4.05]
+                     #   5-3    6-4    7-5   8-6    6-3    7-4    8-5   9-6
+  muonicSi_xrays_sub=[ 39.10, 19.09, 10.77, 6.68, 45.82, 23.14, 13.40, 8.48]
+
+                  # 4-3    5-4    6-5    7-6   8-7   9-8
+  muonicCr_xrays=[78.78, 36.44, 19.79, 11.93, 7.74, 5.31]
+                  # 5-4    6-5    7-6    8-7   9-8  10-9
+  muonicNi_xrays=[49.63, 26.95, 16.25, 10.54, 7.23, 5.17]
+
+  muonicTb_xrays =[ 56.98, 39.05, 27.92, 20.65, 15.71, 12.22, 9.7]
+
+  Mn_Xrays=[5.899]#, 6.490Mn Kalpha, Kbeta
+  Tb_Xrays=[44.4816, 43.7441, 50.382, 6.2380, 6.978, 7.3667, 8.102]#
+  Gd_Xrays=[42.9962, 42.3089, 48.697, 6.0572, 6.0250, 6.7132, 7.1028, 7.7858 ]#
+  #V_Xrays=[4.95, 5.43]#V Kalpha, Kbeta
+
+  bins_full_range=np.arange(0,100,0.1)
+  #Fe_xrays=[6.46
+  fig2,ax2=plt.subplots(3,1)
+  ax2[0].hist(eners    , bins=bins_full_range,histtype='step',color='k', label='all'     )
+  #ax2[0].hist(eners    , bins=550, range=[4,15],histtype='step',color='k', label='all'     )
+  ax2[1].hist(eners_wG , bins=bins_full_range,histtype='step',color='r', label='w/ Gate' )
+  ax2[2].hist(eners_wG, bins=500, range=[0.,25.],histtype='step',color='r', label='w/ Gate (zoom)')
+  #ax2[2].hist(eners_wG, bins=100, range=[20.,30.],histtype='step',color='r', label='w/ Gate (zoom)') # for Ag target
+  #ax2[2].hist(eners_wG, bins=100, range=[4.9,6.9],histtype='step',color='r', label='w/ Gate (zoom)')
+  #ax2[2].hist(eners_wG, bins=100, range=[2,4],histtype='step',color='r', label='w/ Gate (zoom)')
+  #ax2[2].hist(eners_woG, bins=580, range=[2,60],histtype='step',color='b', label='w/o Gate')
+
+  ax2[0].set_yscale('log')
+  ax2[1].set_yscale('log')
+  ax2[1].grid(which='minor', axis='x', linestyle='dashed')
+  ax2[1].grid(which='major', axis='x')
+  ax2[1].set_xticks(np.arange(0,100,2), minor=True)
+  ax2[0].grid(which='minor', axis='x', linestyle='dashed')
+  ax2[0].grid(which='major', axis='x')
+  ax2[0].set_xticks(np.arange(0,100,2), minor=True)
+  #ax2[0].axvline(6.40,color='b',linewidth=1)
+  #ax2[0].axvline(7.06,color='b',linewidth=1)
+  #ax2[0].axvline(14.4,color='b',linewidth=1)
+
+  #for muO in muonicO_xrays:
+  #  ax2[1].axvline(muO,color='b',linewidth=1)
+  #for muOsub in muonicO_xrays_sub:
+  #  ax2[1].axvline(muOsub,color='b',linewidth=1,linestyle='dashed')
+  #for muFe in muonicFe_xrays:
+  #  ax2[1].axvline(muFe,color='m',linewidth=1)
+  #for muFesub in muonicFe_xrays_sub:
+  #  ax2[1].axvline(muFesub,color='m',linewidth=1, linestyle='dashed')
+  #for muAr in muonicAr_xrays:
+  #  ax2[1].axvline(muAr,color='m',linewidth=1)
+
+  
+
+  #for cal_line in cal_lines:
+  #  ax2[1].axvline(cal_line,color='b',linewidth=1, linestyle='dashed')
+    #ax2[2].axvline(cal_line,color='b',linewidth=1, linestyle='dashed')
+  #ax2[2].axvline(muonicHe3_xray,color='b',linewidth=1, linestyle='-.')
+
+  #for muCu in muonicCu_xrays:
+  #  ax2[1].axvline(muCu,color='k',linewidth=1)
+  ax2[2].set_xlabel('energy [keV]')
+  ax2[0].legend()
+  ax2[1].legend()
+  ax2[2].legend()
+  #plt.show()
+  fig2.tight_layout()
+  #fig.savefig(outdir+outname)
+  pp.savefig(fig2)
+
+  fig3,ax3=plt.subplots(3,1)
+  ax3[0].hist(times    , bins=1000, range=[0,100],histtype='step',color='k', label='all'     )
+  ax3[1].hist(times_wG , bins=1000, range=[0,100],histtype='step',color='r', label='w/ Gate' )
+  ax3[2].hist(times_woG, bins=1000, range=[0,100],histtype='step',color='b', label='w/o Gate')
+  ax3[2].set_xlabel('time [us]')
+  ax3[0].legend()
+  ax3[1].legend()
+  ax3[2].legend()
+  #plt.show()
+  fig3.tight_layout()
+  #fig.savefig(outdir+outname)
+  pp.savefig(fig3)
+
+
+  ##fit
+  fig4, ax4=plt.subplots(2,1)
+  #Fe55
+  if cal_source == 'Fe55':
+    ranges=[5.75,6.75]
+    bins=50
+    wrange=ranges[1]-ranges[0]
+    wbin=wrange/bins
+    integ_MnKalpha=len(eners_MnKalpha)
+    integ_MnKbeta =len(eners_MnKbeta )
+    print('wbin:',wbin,', integral Ka:',integ_MnKalpha,', integral Kb:',integ_MnKbeta)
+    param_MnKalpha =norm.fit(eners_MnKalpha)
+    param_MnKbeta  =norm.fit(eners_MnKbeta )
+    print('param_MnKalpha:',param_MnKalpha)
+    print('param_MnKbeta :',param_MnKbeta )
+    x = np.linspace(5.75,6.75,100)
+    FWHM_MnKalpha=2*param_MnKalpha[1]*math.sqrt(2*math.log(2))
+    FWHM_MnKbeta =2*param_MnKbeta [1]*math.sqrt(2*math.log(2))
+    #FWHM_MnKalpha=2.35*param_MnKalpha[1]
+    #FWHM_MnKbeta =2.35*param_MnKbeta [1]
+    print('FWHM Ka:',FWHM_MnKalpha,', Kb:',FWHM_MnKbeta)
+    pdf_fitted_MnKalpha = norm.pdf(x,loc=param_MnKalpha[0], scale=param_MnKalpha[1])*integ_MnKalpha*wbin
+    pdf_fitted_MnKbeta  = norm.pdf(x,loc=param_MnKbeta [0], scale=param_MnKbeta [1])*integ_MnKbeta *wbin
+    #plt.title('Mn Kalpha')
+    ax4[0].plot(x, pdf_fitted_MnKalpha, 'r-')#, x,pdf, 'b-')
+    ax4[0].plot(x, pdf_fitted_MnKbeta , 'r-')#, x,pdf, 'b-')
+    ax4[0].hist(np.hstack([eners_MnKalpha,eners_MnKbeta]), bins=bins, range=ranges,histtype='step',color='r', label='Mn Ka, Kb', alpha=.3)
+    ax4[0].legend()
+    ax4[1].hist(np.hstack([eners_MnKalpha,eners_MnKbeta]), bins=bins, range=ranges,histtype='step',color='r', label='Mn Ka, Kb', alpha=.3)
+    ax4[1].set_xlabel('energy [keV]')
+    ####
+    #Co57 (14.41300)
+  elif cal_source == 'Co57':
+    bins=20
+    wrange=Co57_ranges[1]-Co57_ranges[0]
+    wbin=wrange/bins
+    integ_Co57=len(eners_Co57)
+    print('wbin:',wbin,', integral Co57 peak:',integ_Co57)
+    param_Co57 =norm.fit(eners_Co57)
+    print('param_Co57:',param_Co57)
+    x = np.linspace(Co57_ranges[0],Co57_ranges[1],100)
+    FWHM_Co57=2*param_Co57[1]*math.sqrt(2*math.log(2))
+    #FWHM_Co57=2.35*param_Co57[1]
+    print('FWHM Co57:',FWHM_Co57)
+    pdf_fitted_Co57 = norm.pdf(x,loc=param_Co57[0], scale=param_Co57[1])*integ_Co57*wbin
+    fig4, ax4=plt.subplots(2,1)
+    ax4[0].plot(x, pdf_fitted_Co57, 'r-')#, x,pdf, 'b-')
+    ax4[0].hist(eners_Co57, bins=bins, range=Co57_ranges,histtype='step',color='r', label='Co57', alpha=.3)
+    ax4[0].legend()
+    ax4[1].hist(eners_Co57, bins=bins, range=Co57_ranges,histtype='step',color='r', label='Co57', alpha=.3)
+    ax4[1].set_xlabel('energy [keV]')
+  #elif cal_source == 'muAr':
+  #  wrange=Co57_ranges[1]-Co57_ranges[0]
+  #  wbin=wrange/bins
+  #  integ_Co57=len(eners_Co57)
+  #  print('wbin:',wbin,', integral Co57 peak:',integ_Co57)
+  #  param_Co57 =norm.fit(eners_Co57)
+  #  print('param_Co57:',param_Co57)
+  #  x = np.linspace(Co57_ranges[0],Co57_ranges[1],100)
+  #  FWHM_Co57=2*param_Co57[1]*math.sqrt(2*math.log(2))
+  #  print('FWHM Co57:',FWHM_Co57)
+  #  pdf_fitted_Co57 = norm.pdf(x,loc=param_Co57[0], scale=param_Co57[1])*integ_Co57*wbin
+  #  fig4, ax4=plt.subplots(2,1)
+  #  ax4[0].plot(x, pdf_fitted_Co57, 'r-')#, x,pdf, 'b-')
+  #  ax4[0].hist(eners_Co57, bins=bins, range=Co57_ranges,histtype='step',color='r', label='Co57', alpha=.3)
+  #  ax4[0].legend()
+  #  ax4[1].hist(eners_Co57, bins=bins, range=Co57_ranges,histtype='step',color='r', label='Co57', alpha=.3)
+  #  ax4[1].set_xlabel('energy [keV]')
+
+    fig4.tight_layout()
+    pp.savefig(fig4)
+
+  fig5, ax5=plt.subplots(2,1)
+  ebins1=np.arange( 2,30,0.1)
+  #ebins2=np.arange(30,48,0.1)
+  ebins2=np.arange(30,100,0.1)
+  #ax5[0].hist(eners    , bins=ebins1,histtype='step',color='k', label='all'     )
+  #ax5[1].hist(eners    , bins=ebins2,histtype='step',color='k', label='all'     )
+  ax5[0].hist(eners_wG    , bins=ebins1,histtype='step',color='r', label='w/ Gate'     )
+  ax5[1].hist(eners_wG    , bins=ebins2,histtype='step',color='r', label='w/ Gate'     )
+  ax5[0].set_xlim(ebins1[0],ebins1[-1])
+  ax5[1].set_xlim(ebins2[0],ebins2[-1])
+  ax5[0].set_xticks(np.arange( 2,30,1), minor=True)
+  ax5[1].set_xticks(np.arange(30,100,1), minor=True)
+  ax5[1].set_xlabel('Energy [keV]')
+  ax5[0].set_yscale('log')
+  ax5[1].set_yscale('log')
+  ax5[0].grid(which='minor', axis='x', linestyle='dashed')
+  ax5[0].grid(which='major', axis='x')
+  ax5[1].grid(which='minor', axis='x', linestyle='dashed')
+  ax5[1].grid(which='major', axis='x')
+  #for cal_line in cal_lines:
+  #  ax5[0].axvline(cal_line,color='b',linewidth=1, linestyle='dashed')
+  #  ax5[1].axvline(cal_line,color='b',linewidth=1, linestyle='dashed')
+
+
+  xpos=30.5
+  #muonic Si
+  #for muX in muonicSi_xrays:
+  #  if (muX < 30) & (muX > 2):
+  #    ax5[0].axvline(muX,color='m',linewidth=1)
+  #  elif (muX > 30) & (muX < 100):
+  #    ax5[1].axvline(muX,color='m',linewidth=1)
+  #for muX in muonicSi_xrays_sub:
+  #  if (muX < 30) & (muX > 2):
+  #    ax5[0].axvline(muX,color='m',linewidth=1, linestyle='dashed')
+  #  elif (muX > 30) & (muX < 100):
+  #    ax5[1].axvline(muX,color='m',linewidth=1, linestyle='dashed')
+  #ax5[1].text(xpos,70,'muSi',color='m')
+  #muonic Ar
+  for muX in muonicAr_xrays:
+    if (muX < 30) & (muX > 2):
+      ax5[0].axvline(muX,color='m',linewidth=1)
+    elif (muX > 30) & (muX < 100):
+      ax5[1].axvline(muX,color='m',linewidth=1)
+  for muX in muonicAr_xrays_sub:
+    if (muX < 30) & (muX > 2):
+      ax5[0].axvline(muX,color='m',linewidth=1, linestyle='dashed')
+    elif (muX > 30) & (muX < 100):
+      ax5[1].axvline(muX,color='m',linewidth=1, linestyle='dashed')
+  ax5[1].text(xpos,70,'muAr',color='m')
+  #muonic Tb
+  #for muX in muonicTb_xrays:
+  #  if (muX < 30) & (muX > 2):
+  #    ax5[0].axvline(muX,color='orange',linewidth=1)
+  #  elif (muX > 30) & (muX < 100):
+  #    ax5[1].axvline(muX,color='orange',linewidth=1)
+  #ax5[1].text(xpos,70,'muTb',color='orange')
+  #SUS
+  for muX in muonicFe_xrays:
+    if (muX < 30) & (muX > 5):
+      ax5[0].axvline(muX,color='g',linewidth=1)
+    elif (muX > 30) & (muX < 100):
+      ax5[1].axvline(muX,color='g',linewidth=1)
+  #for muX in muonicFe_xrays_sub:
+  #  if (muX < 30) & (muX > 5):
+  #    ax5[0].axvline(muX,color='g',linewidth=1, linestyle='dashed')
+  #  elif (muX > 30) & (muX < 100):
+  #    ax5[1].axvline(muX,color='g',linewidth=1, linestyle='dashed')
+  ax5[1].text(xpos,40,'muFe',color='g')
+
+  #for eX in Mn_Xrays:
+  #  if (eX < 30) & (eX > 5):
+  #    ax5[0].axvline(eX,color='k',linewidth=1)
+  #  elif (eX > 30) & (eX < 55):
+  #    ax5[1].axvline(eX,color='k',linewidth=1)
+  #ax5[1].text(xpos,20,'Mn Kalpha',color='k')
+
+  #for eX in Tb_Xrays:
+  #  if (eX < 30) & (eX > 5):
+  #    ax5[0].axvline(eX,color='k',linewidth=1)
+  #  elif (eX > 30) & (eX < 55):
+  #    ax5[1].axvline(eX,color='k',linewidth=1)
+  #ax5[1].text(xpos,20,'Tb eX-ray',color='k')
+
+  #for eX in Gd_Xrays:
+  #  if (eX < 30) & (eX > 5):
+  #    ax5[0].axvline(eX,color='brown',linewidth=1)
+  #  elif (eX > 30) & (eX < 55):
+  #    ax5[1].axvline(eX,color='brown',linewidth=1)
+  #ax5[1].text(xpos,15,'Gd eX-ray',color='brown')
+
+  #capton, stycast, CFRP
+  for muX in muonicC_xrays:
+    if (muX < 30) & (muX > 5):
+      ax5[0].axvline(muX,color='y',linewidth=1)
+    elif (muX > 30) & (muX < 100):
+      ax5[1].axvline(muX,color='y',linewidth=1)
+  for muX in muonicC_xrays_sub:
+    if (muX < 30) & (muX > 5):
+      ax5[0].axvline(muX,color='y',linewidth=1, linestyle='dashed')
+    elif (muX > 30) & (muX < 100):                                 
+      ax5[1].axvline(muX,color='y',linewidth=1, linestyle='dashed')
+  ax5[1].text(xpos,10,'muC',color='y')
+  for muX in muonicO_xrays:
+    if (muX < 30) & (muX > 5):
+      ax5[0].axvline(muX,color='b',linewidth=1)
+    elif (muX > 30) & (muX < 100):
+      ax5[1].axvline(muX,color='b',linewidth=1)
+  for muX in muonicO_xrays_sub:
+    if (muX < 30) & (muX > 5):
+      ax5[0].axvline(muX,color='b',linewidth=1, linestyle='dashed')
+    elif (muX > 30) & (muX < 100):
+      ax5[1].axvline(muX,color='b',linewidth=1, linestyle='dashed')
+  ax5[1].text(xpos,5,'muO',color='b')
+
+
+
+  #for muX in muonicAg_xrays:
+  #  if (muX < 30) & (muX > 5):
+  #    ax5[0].axvline(muX,color='g',linewidth=1)
+  #  elif (muX > 30) & (muX < 55):
+  #    ax5[1].axvline(muX,color='g',linewidth=1)
+  #for muX in muonicAl_xrays:
+  #  if (muX < 30) & (muX > 5):
+  #    ax5[0].axvline(muX,color='m',linewidth=1)
+  #  elif (muX > 30) & (muX < 55):
+  #    ax5[1].axvline(muX,color='m',linewidth=1)
+  #for muX in muonicBe_xrays:
+  #  if (muX < 30) & (muX > 5):
+  #    ax5[0].axvline(muX,color='y',linewidth=1)
+  #  elif (muX > 30) & (muX < 55):
+  #    ax5[1].axvline(muX,color='y',linewidth=1)
+  #for muX in muonicSi_xrays:
+  #  if (muX < 30) & (muX > 5):
+  #    ax5[0].axvline(muX,color='c',linewidth=1)
+  #  elif (muX > 30) & (muX < 55):
+  #    ax5[1].axvline(muX,color='c',linewidth=1)
+  #for muX in muonicC_xrays:
+  #  if (muX < 30) & (muX > 5):
+  #    ax5[0].axvline(muX,color='#ff7f00',linewidth=1)
+  #  elif (muX > 30) & (muX < 55):
+  #    ax5[1].axvline(muX,color='#ff7f00',linewidth=1)
+  pp.savefig(fig5)
+
+  ####
+  #muHe3 bg fit
+  fig6, ax6=plt.subplots(sharex=True)
+  #muHe_bins=np.arange(7,9,4.*5.748e-03)
+  #np_eners_wG=np.array(eners_wG)
+  #muHe_bgcut = ((np_eners_wG>7.0) & (np_eners_wG<7.75)) | ((np_eners_wG>8.5) & (np_eners_wG<9.00))
+  #print('muHe_bgcut:',muHe_bgcut, ' type(muHe_bgcut)', type(muHe_bgcut), ' len(muHe_bgcut)', len(muHe_bgcut))
+  #ncount_bg, bins = np.histogram(np_eners_wG[muHe_bgcut],muHe_bins)
+  #ncount   , bins = np.histogram(np_eners_wG            ,muHe_bins)
+  #delta_E = (bins[:-1]+bins[1:])*0.5
+  #nonzero_nc_idx = tuple(list(np.where(ncount_bg>0)))
+  ##nonzero_nc_idx = list(np.where(ncount_bg>0))  #warning appeared
+  #coeff, cov = np.polyfit(delta_E[nonzero_nc_idx], ncount_bg[nonzero_nc_idx],1, w=1/np.sqrt(ncount_bg[nonzero_nc_idx]),cov=True)
+  #print('coeff:',coeff)
+  #print('delta_E:',delta_E)
+  #print('bins:',bins)
+
+  #ax6[0].errorbar(delta_E, ncount, yerr=np.sqrt(ncount) , drawstyle='steps-mid', color='r')
+  #ax6[0].plot(delta_E, coeff[0]*delta_E+coeff[1], color='m', linestyle='dashed')
+  #ax6[1].errorbar(delta_E, ncount-(coeff[0]*delta_E+coeff[1]), yerr=np.sqrt(ncount) , drawstyle='steps-mid', color='r')
+  #muBe_8keV=getNearestValue(muonicBe_xrays,8.)
+  #muBe_shift= -0.02
+  ##print(muBe_8keV)
+  #x=np.linspace(7,9,100)
+  #peak=max(ncount-(coeff[0]*delta_E+coeff[1]))
+  #print('peak: ',peak)
+  #print('mean counts (after sub. pol1bg, gauss): ',np.mean(ncount-(coeff[0]*delta_E+coeff[1])-gaussian(delta_E,peak,mu=muBe_8keV+muBe_shift,sigma=0.06)))
+  #ax6[1].plot(x,gaussian(x,peak,mu=muBe_8keV+muBe_shift,sigma=0.06),'r-',alpha=.3) #sigma 0.081@14.4keV, 0.060@5.9keV,  0.062@6.4keV
+  ##print(gaussian(delta_E,peak,mu=muBe_8keV,sigma=0.06))
+  #ax6[1].axvline(muBe_8keV,color='y',linewidth=1)
+  #ax6[2].errorbar(delta_E, ncount-(coeff[0]*delta_E+coeff[1])-gaussian(delta_E,peak,mu=muBe_8keV+muBe_shift,sigma=0.06), yerr=np.sqrt(ncount) , drawstyle='steps-mid', color='r')
+  #ax6[2].axhline(0,color='k',linewidth=1, linestyle='dashed')
+  #ax6[2].set_xlabel('Energy [keV]')
+  #ax6[2].axvline(muonicHe3_xray,color='b',linewidth=1, linestyle='-.')
+  ax6.hist(np.array(eners_wG)*1000. , bins=np.arange( 2500,3501,20.),histtype='step',color='b', label='w/ Gate'     )
+  #ax6.set_xlim(2500,3200)
+  ax6.set_xlim(2700,3100)
+  #ax6.set_xticks(np.arange( 2500,3550,100))
+  pp.savefig(fig6)
+  
+  #15.2, 26.6
+  #plt.show()
+
+  pp.close()
+  print(outdir+outname,'is saved.')
+
+  ##hdf5 output (test)
+  #hdf_cut= (np_eners_wG) > 7 & (np_eners_wG < 10)
+  #outname_hdf5 =outname.replace('.pdf','.hdf5')
+  #print(outname_hdf5)
+  #with h5py.File(outdir+outname_hdf5, mode='w') as f:
+  #  dataset = f.create_dataset(name='/SDD/eners_wG', data=np_eners_wG)
+
+if __name__ == "__main__":
+
+    run=25 #
+    #readfile(inputfiles = ["list_{0:06d}_01-00000000001.bin".format(run)], ENum = -1, datadir="C:\Data/RKN2024A/list/", outdir="C:\Data/RKN2024A/pdf/", outname="SDD_ene_MLF_run{0:04d}.pdf".format(run),  cal_source="muAr")
+
+    argc=len(sys.argv)
+    inputfiles=[]
+    if argc==2:
+      run=int(sys.argv[1])
+      irun=run
+      frun=run
+      ##print('yes',argc)
+    elif argc==3:
+      irun=int(sys.argv[1])
+      frun=int(sys.argv[2])
+    else :
+      ##print('no',sargc)
+
+      irun=36
+      frun=36
+    for run in range(irun,frun+1):
+      inputfiles.append("list_{0:06d}_01-00000000001.bin".format(run))
+      #inputfiles.append("SDD_{0:06d}_01-00000000001.bin".format(run))
+
+
+    readfile(inputfiles =inputfiles, ENum = -1, datadir="/data/sdd/TES_analysis/KETEKSDD/data/TMU2022C/list/", outdir="/data/sdd/TES_analysis/KETEKSDD/data/TMU2022C/pdf/", outname="SDD_ene_MLF_run{0:04d}_{1:04d}.pdf".format(irun, frun),  cal_source="muAr")
